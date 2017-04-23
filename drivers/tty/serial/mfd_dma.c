@@ -640,7 +640,11 @@ static void intel_dma_start_tx(struct uart_hsu_port *up)
 						 | (0x1 << 8)
 						 | (0x1 << 16));
 		chan_writel(up->txc, HSU_CH_CR, 0x1);
-	}
+	} else {
+                /* reset the TX buffer to ensure lineair buffer */
+                xmit->tail = 0;
+                xmit->head = 0;
+        };
 
 	if (uart_circ_chars_pending(xmit) < WAKEUP_CHARS)
 		uart_write_wakeup(&up->port);
