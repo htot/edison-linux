@@ -10,7 +10,7 @@
 #include <asm/intel_mid_hsu.h>
 
 #define HSU_PORT_MAX		8
-#define HSU_DMA_BUF_SIZE	2048
+#define HSU_DMA_BUF_SIZE	4096
 #define HSU_Q_MAX		4096
 #define HSU_CL_BUF_LEN		(1 << CONFIG_LOG_BUF_SHIFT)
 #define HSU_DMA_BSR		32
