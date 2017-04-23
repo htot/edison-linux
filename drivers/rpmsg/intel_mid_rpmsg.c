@@ -103,7 +103,11 @@ static struct rpmsg_lock global_lock = {
 
 #define is_global_locked_prev		(global_lock.locked_prev)
 #define set_global_locked_prev(lock)	(global_lock.locked_prev = lock)
+#ifdef CONFIG_PREEMPT_RT_FULL
+#define global_locked_by_current	(global_lock.lock.lock.owner == current)
+#else
 #define global_locked_by_current	(global_lock.lock.owner == current)
+#endif
 
 void rpmsg_global_lock(void)
 {
