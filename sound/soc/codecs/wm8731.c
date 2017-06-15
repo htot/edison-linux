@@ -78,7 +78,7 @@ static bool wm8731_writeable(struct device *dev, unsigned int reg)
 	return reg <= WM8731_RESET;
 }
 
-#define wm8731_reset(c)	snd_soc_write(c, WM8731_RESET, 0)
+#define wm8731_reset(m)	regmap_write(m, WM8731_RESET, 0)
 
 static const char *wm8731_input_select[] = {"Line In", "Mic"};
 
@@ -112,7 +112,7 @@ static int wm8731_set_deemph(struct snd_soc_codec *codec)
 	dev_dbg(codec->dev, "Set deemphasis %d (%dHz)\n",
 		best, wm8731_deemph[best]);
 
-	return snd_soc_update_bits(codec, WM8731_APDIGI, 0x6, val);
+	return regmap_update_bits(wm8731->regmap, WM8731_APDIGI, 0x6, val);
 }
 
 static int wm8731_get_deemph(struct snd_kcontrol *kcontrol,
@@ -307,42 +307,41 @@ static int wm8731_hw_params(struct snd_pcm_substream *substream,
 {
 	struct snd_soc_codec *codec = dai->codec;
 	struct wm8731_priv *wm8731 = snd_soc_codec_get_drvdata(codec);
-	u16 iface = snd_soc_read(codec, WM8731_IFACE) & 0xfff3;
+	unsigned int format = 0;
 	int i = get_coeff(wm8731->sysclk, params_rate(params));
 	u16 srate = (coeff_div[i].sr << 2) |
 		(coeff_div[i].bosr << 1) | coeff_div[i].usb;
 
 	wm8731->playback_fs = params_rate(params);
 
-	snd_soc_write(codec, WM8731_SRATE, srate);
+	regmap_write(wm8731->regmap, WM8731_SRATE, srate);
 
 	/* bit size */
 	switch (params_format(params)) {
 	case SNDRV_PCM_FORMAT_S16_LE:
 		break;
 	case SNDRV_PCM_FORMAT_S20_3LE:
-		iface |= 0x0004;
+		format = 0x4;
 		break;
 	case SNDRV_PCM_FORMAT_S24_LE:
-		iface |= 0x0008;
+		format = 0x8;
 		break;
 	}
 
 	wm8731_set_deemph(codec);
 
-	snd_soc_write(codec, WM8731_IFACE, iface);
-	return 0;
+	return regmap_update_bits(wm8731->regmap, WM8731_IFACE, 0x0c, format);
 }
 
 static int wm8731_mute(struct snd_soc_dai *dai, int mute)
 {
 	struct snd_soc_codec *codec = dai->codec;
-	u16 mute_reg = snd_soc_read(codec, WM8731_APDIGI) & 0xfff7;
+	struct wm8731_priv *wm8731 = snd_soc_codec_get_drvdata(codec);
 
 	if (mute)
-		snd_soc_write(codec, WM8731_APDIGI, mute_reg | 0x8);
+		regmap_update_bits(wm8731->regmap, WM8731_APDIGI, 0x8, 0x8);
 	else
-		snd_soc_write(codec, WM8731_APDIGI, mute_reg);
+		regmap_update_bits(wm8731->regmap, WM8731_APDIGI, 0x8, 0);
 	return 0;
 }
 
@@ -383,6 +382,7 @@ static int wm8731_set_dai_fmt(struct snd_soc_dai *codec_dai,
 		unsigned int fmt)
 {
 	struct snd_soc_codec *codec = codec_dai->codec;
+	struct wm8731_priv *wm8731 = snd_soc_codec_get_drvdata(codec);
 	u16 iface = 0;
 
 	/* set master/slave audio interface */
@@ -407,10 +407,10 @@ static int wm8731_set_dai_fmt(struct snd_soc_dai *codec_dai,
 		iface |= 0x0001;
 		break;
 	case SND_SOC_DAIFMT_DSP_A:
-		iface |= 0x0003;
+		iface |= 0x0013;
 		break;
 	case SND_SOC_DAIFMT_DSP_B:
-		iface |= 0x0013;
+		iface |= 0x0003;
 		break;
 	default:
 		return -EINVAL;
@@ -434,7 +434,7 @@ static int wm8731_set_dai_fmt(struct snd_soc_dai *codec_dai,
 	}
 
 	/* set iface */
-	snd_soc_write(codec, WM8731_IFACE, iface);
+	regmap_write(wm8731->regmap, WM8731_IFACE, iface);
 	return 0;
 }
 
@@ -443,7 +443,6 @@ static int wm8731_set_bias_level(struct snd_soc_codec *codec,
 {
 	struct wm8731_priv *wm8731 = snd_soc_codec_get_drvdata(codec);
 	int ret;
-	u16 reg;
 
 	switch (level) {
 	case SND_SOC_BIAS_ON:
@@ -460,12 +459,13 @@ static int wm8731_set_bias_level(struct snd_soc_codec *codec,
 			regcache_sync(wm8731->regmap);
 		}
 
+		/* Clear POWEROFF, keep everything else disabled */
+/*		regmap_write(wm8731->regmap, WM8731_PWR, 0x7f);*/
 		/* Clear PWROFF, gate CLKOUT, everything else as-is */
-		reg = snd_soc_read(codec, WM8731_PWR) & 0xff7f;
-		snd_soc_write(codec, WM8731_PWR, reg | 0x0040);
+		regmap_update_bits(wm8731->regmap, WM8731_PWR, 0xc0, 0x40);
 		break;
 	case SND_SOC_BIAS_OFF:
-		snd_soc_write(codec, WM8731_PWR, 0xffff);
+		regmap_write(wm8731->regmap, WM8731_PWR, 0xff);
 		regulator_bulk_disable(ARRAY_SIZE(wm8731->supplies),
 				       wm8731->supplies);
 		regcache_mark_dirty(wm8731->regmap);
@@ -527,78 +527,65 @@ static int wm8731_resume(struct snd_soc_codec *codec)
 static int wm8731_probe(struct snd_soc_codec *codec)
 {
 	struct wm8731_priv *wm8731 = snd_soc_codec_get_drvdata(codec);
-	int ret = 0, i;
+	int ret = 0;
 
 	codec->control_data = wm8731->regmap;
-	ret = snd_soc_codec_set_cache_io(codec, 7, 9, SND_SOC_REGMAP);
-	if (ret < 0) {
-		dev_err(codec->dev, "Failed to set cache I/O: %d\n", ret);
-		return ret;
-	}
+
+	return 0;
+}
+
+static int wm8731_request_supplies(struct device *dev,
+		struct wm8731_priv *wm8731)
+{
+	int ret = 0, i;
 
 	for (i = 0; i < ARRAY_SIZE(wm8731->supplies); i++)
 		wm8731->supplies[i].supply = wm8731_supply_names[i];
 
-	ret = regulator_bulk_get(codec->dev, ARRAY_SIZE(wm8731->supplies),
+	ret = devm_regulator_bulk_get(dev, ARRAY_SIZE(wm8731->supplies),
 				 wm8731->supplies);
 	if (ret != 0) {
-		dev_err(codec->dev, "Failed to request supplies: %d\n", ret);
+		dev_err(dev, "Failed to request supplies: %d\n", ret);
 		return ret;
 	}
 
 	ret = regulator_bulk_enable(ARRAY_SIZE(wm8731->supplies),
 				    wm8731->supplies);
 	if (ret != 0) {
-		dev_err(codec->dev, "Failed to enable supplies: %d\n", ret);
-		goto err_regulator_get;
+		dev_err(dev, "Failed to enable supplies: %d\n", ret);
+		return ret;
 	}
 
-	ret = wm8731_reset(codec);
+	return 0;
+}
+
+static int wm8731_hw_init(struct device *dev, struct wm8731_priv *wm8731)
+{
+	int ret = 0;
+
+	ret = wm8731_reset(wm8731->regmap);
 	if (ret < 0) {
-		dev_err(codec->dev, "Failed to issue reset: %d\n", ret);
+		dev_err(dev, "Failed to issue reset: %d\n", ret);
 		goto err_regulator_enable;
 	}
 
-	wm8731_set_bias_level(codec, SND_SOC_BIAS_STANDBY);
-
-	/* Latch the update bits */
-	snd_soc_update_bits(codec, WM8731_LOUT1V, 0x100, 0);
-	snd_soc_update_bits(codec, WM8731_ROUT1V, 0x100, 0);
-	snd_soc_update_bits(codec, WM8731_LINVOL, 0x100, 0);
-	snd_soc_update_bits(codec, WM8731_RINVOL, 0x100, 0);
+	/* Clear POWEROFF, keep everything else disabled */
+	regmap_write(wm8731->regmap, WM8731_PWR, 0x7f);
 
 	/* Disable bypass path by default */
-	snd_soc_update_bits(codec, WM8731_APANA, 0x8, 0);
+	regmap_update_bits(wm8731->regmap, WM8731_APANA, 0x8, 0);
 
-	/* Regulators will have been enabled by bias management */
-	regulator_bulk_disable(ARRAY_SIZE(wm8731->supplies), wm8731->supplies);
-
-	return 0;
+	regcache_mark_dirty(wm8731->regmap);
 
 err_regulator_enable:
+	/* Regulators will be enabled by bias management */
 	regulator_bulk_disable(ARRAY_SIZE(wm8731->supplies), wm8731->supplies);
-err_regulator_get:
-	regulator_bulk_free(ARRAY_SIZE(wm8731->supplies), wm8731->supplies);
 
 	return ret;
 }
 
-/* power down chip */
-static int wm8731_remove(struct snd_soc_codec *codec)
-{
-	struct wm8731_priv *wm8731 = snd_soc_codec_get_drvdata(codec);
-
-	wm8731_set_bias_level(codec, SND_SOC_BIAS_OFF);
-
-	regulator_bulk_disable(ARRAY_SIZE(wm8731->supplies), wm8731->supplies);
-	regulator_bulk_free(ARRAY_SIZE(wm8731->supplies), wm8731->supplies);
-
-	return 0;
-}
-
 static struct snd_soc_codec_driver soc_codec_dev_wm8731 = {
 	.probe =	wm8731_probe,
-	.remove =	wm8731_remove,
 	.suspend =	wm8731_suspend,
 	.resume =	wm8731_resume,
 	.set_bias_level = wm8731_set_bias_level,
@@ -641,6 +628,13 @@ static int wm8731_spi_probe(struct spi_device *spi)
 	if (wm8731 == NULL)
 		return -ENOMEM;
 
+	spi_set_drvdata(spi, wm8731);
+
+	ret = wm8731_request_supplies(&spi->dev, wm8731);
+	if (ret != 0) {
+		return ret;
+	}
+
 	wm8731->regmap = devm_regmap_init_spi(spi, &wm8731_regmap);
 	if (IS_ERR(wm8731->regmap)) {
 		ret = PTR_ERR(wm8731->regmap);
@@ -649,7 +643,10 @@ static int wm8731_spi_probe(struct spi_device *spi)
 		return ret;
 	}
 
-	spi_set_drvdata(spi, wm8731);
+	ret = wm8731_hw_init(&spi->dev, wm8731);
+	if (ret != 0) {
+		return ret;
+	}
 
 	ret = snd_soc_register_codec(&spi->dev,
 			&soc_codec_dev_wm8731, &wm8731_dai, 1);
@@ -690,6 +687,13 @@ static int wm8731_i2c_probe(struct i2c_client *i2c,
 	if (wm8731 == NULL)
 		return -ENOMEM;
 
+	i2c_set_clientdata(i2c, wm8731);
+
+	ret = wm8731_request_supplies(&i2c->dev, wm8731);
+	if (ret != 0) {
+		return ret;
+	}
+
 	wm8731->regmap = devm_regmap_init_i2c(i2c, &wm8731_regmap);
 	if (IS_ERR(wm8731->regmap)) {
 		ret = PTR_ERR(wm8731->regmap);
@@ -698,7 +702,10 @@ static int wm8731_i2c_probe(struct i2c_client *i2c,
 		return ret;
 	}
 
-	i2c_set_clientdata(i2c, wm8731);
+	ret = wm8731_hw_init(&i2c->dev, wm8731);
+	if (ret != 0) {
+		return ret;
+	}
 
 	ret = snd_soc_register_codec(&i2c->dev,
 			&soc_codec_dev_wm8731, &wm8731_dai, 1);

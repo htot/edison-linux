@@ -25,6 +25,7 @@
 #include "platform_mrfld_audio.h"
 #include "platform_msic.h"
 #include "platform_wm8994.h"
+#include "platform_wm8731.h"
 
 static char* audio_codec = "dummy";
 module_param(audio_codec, charp, S_IRUSR);
@@ -130,6 +131,16 @@ void *mrfld_sst_audio_platform_data(void *info)
 
 		register_rpmsg_service("rpmsg_mrfld_wm8958_audio", RPROC_SCU,
 					RP_MSIC_MRFLD_AUDIO);
+	} else if (!strcmp(audio_codec, "wm8731")) {
+		/* Register i2c audio codec wm8731 */
+		wm8731_platform_data(NULL);
+
+		pdev = platform_device_register_simple("mrfld_wm8731",
+					0, NULL, 0);
+		if (!pdev) {
+			pr_err("failed to allocate mrfld_wm8731 platform device\n");
+			return NULL;
+		}
 	}
 	/*
 	 * To add a new codec, add a "else if" statement with

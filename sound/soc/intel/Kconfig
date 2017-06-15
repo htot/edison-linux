@@ -18,6 +18,7 @@ config SND_MRFLD_MACHINE
 	depends on INTEL_SCU_IPC && X86
 	select SND_SOC_LM49453
 	select SND_SOC_WM8994
+	select SND_SOC_WM8731
 	select MFD_CORE
 	select MFD_WM8994
 	select REGULATOR_WM8994
